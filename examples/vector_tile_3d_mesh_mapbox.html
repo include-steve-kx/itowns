@@ -40,7 +40,7 @@
 
             // Define camera initial position
             const placement = {
-                coord: new itowns.Coordinates('EPSG:4326', 5.223762, 46.192268),
+                coord: new itowns.Coordinates('EPSG:4326', -71.310196, 41.490578),
                 range: 5000,
                 tilt: 45,
             };
@@ -99,6 +99,25 @@
                 },
             });
 
+            const contoursSource = new itowns.VectorTilesSource({
+                style: {
+                    sources: {
+                        sourceTiles: {
+                            tiles: ['http://localhost:3000/depth/{z}/{x}/{y}']
+                        }
+                    },
+                    layers: [{
+                        id: 'depth',
+                        source: 'sourceTiles',
+                        'source-layer': 'depth',
+                        type: 'fill',
+                        // paint: {
+                            // 'fill-color': 'green',
+                        // }
+                    }],
+                }
+            });
+
             // Get buildings ground elevation
             function altitudeBuildings(properties, ctx) {
                 if (ctx.coordinates) {
@@ -126,8 +145,70 @@
                 }
             });
 
+            var contoursLayer = new itowns.FeatureGeometryLayer('depth',{
+                batchId: function (property, featureId) { return featureId; },
+                source: contoursSource,
+                zoom: {
+                    min: 15,
+                },
+                style: {
+                    fill: {
+                        extrusion_height: (p) => {
+                            // return p.drval2 || 0;
+                            return 50;
+                        },
+                        color: (p) => {
+                            // Get the depth value
+                            const depth = p.drval2 || 0;
+                            
+                            // Define min and max depth values for the color ramp
+                            const minDepth = 0;
+                            const maxDepth = 100; // Adjust based on your actual depth range
+                            
+                            // Normalize the depth value between 0 and 1
+                            const normalizedDepth = Math.max(0, Math.min(1, (depth - minDepth) / (maxDepth - minDepth)));
+                            
+                            // Define color stops for the gradient from purple to red
+                            // Interpolate from purple (lowest) to blue to green to yellow to red (highest)
+                            let r, g, b;
+                            
+                            if (normalizedDepth < 0.25) {
+                                // Purple to Blue
+                                const t = normalizedDepth / 0.25;
+                                r = Math.floor(128 * (1 - t));
+                                g = 0;
+                                b = 255;
+                            } else if (normalizedDepth < 0.5) {
+                                // Blue to Green
+                                const t = (normalizedDepth - 0.25) / 0.25;
+                                r = 0;
+                                g = Math.floor(255 * t);
+                                b = Math.floor(255 * (1 - t));
+                            } else if (normalizedDepth < 0.75) {
+                                // Green to Yellow
+                                const t = (normalizedDepth - 0.5) / 0.25;
+                                r = Math.floor(255 * t);
+                                g = 255;
+                                b = 0;
+                            } else {
+                                // Yellow to Red
+                                const t = (normalizedDepth - 0.75) / 0.25;
+                                r = 255;
+                                g = Math.floor(255 * (1 - t));
+                                b = 0;
+                            }
+                            
+                            // Convert to hex color string
+                            return `rgb(${r}, ${g}, ${b})`;
+                        }
+                    },
+                }
+            });
+
             // Add the FeatureGeometryLayer to the scene and to the debug menu.
             view.addLayer(buildingsLayer);
+
+            view.addLayer(contoursLayer);
 
             // ---------- DEBUG TOOLS : ----------
 
@@ -170,6 +251,173 @@
                     });
                 }
             }
+
+            // Add a simple 3D cube to the scene
+            function addCube() {
+                // Define the cube size and material
+                const geometry = new itowns.THREE.BoxGeometry(200, 200, 400);
+                const material = new itowns.THREE.MeshBasicMaterial({
+                    color: 0xff0000,
+                    wireframe: true,
+                });
+                
+                // Create the cube mesh
+                const cube = new itowns.THREE.Mesh(geometry, material);
+                
+                // Set cube position using geographical coordinates
+                const longitude = -71.310196;
+                const latitude = 41.490578;
+                const altitude = 300; // Meters above ground
+                
+                // Create geographic coordinates
+                const coordCube = new itowns.Coordinates('EPSG:4326', longitude, latitude, altitude);
+                
+                // Convert to view's reference system
+                const coordView = coordCube.as(view.referenceCrs);
+                
+                // Set position directly using toVector3
+                coordView.toVector3(cube.position);
+                
+                // Orient the cube to point up from the globe surface
+                // cube.lookAt(0, 0, 0);
+                // cube.lookAt(coordView.geodesicNormal.clone().multiplyScalar(1000).add(cube.position));
+                // cube.lookAt(coordView.geodesicNormal.clone().multiplyScalar(1000));
+                // cube.lookAt(cube.position)；
+                
+                // Add the cube to the scene
+                view.scene.add(cube);
+
+                cube.lookAt(0, 0, 0);
+                cube.updateMatrixWorld(true);
+
+                setInterval(() => {
+                    cube.rotation.x += 0.001;
+                    cube.updateMatrixWorld(true);
+                    view.notifyChange();
+                }, 10);
+            }
+            
+            // Call the function to add the cube
+            // addCube();
+
+            // Add scene lighting for better visibility of 3D models
+            function addSceneLighting() {
+                // Add ambient light for overall scene illumination
+                const ambientLight = new itowns.THREE.AmbientLight(0xffffff, 2);
+                view.scene.add(ambientLight);
+                
+                // Add directional light simulating sunlight
+                const directionalLight = new itowns.THREE.DirectionalLight(0xffffff, 1);
+                // Position the light high in the sky
+                directionalLight.position.set(100, 100, 100);
+                directionalLight.target.position.set(0, 0, 0);
+                
+                // Enable shadows for more realistic rendering
+                directionalLight.castShadow = true;
+                directionalLight.shadow.mapSize.width = 1024;
+                directionalLight.shadow.mapSize.height = 1024;
+                
+                // Add directional light and its target to the scene
+                view.scene.add(directionalLight);
+                view.scene.add(directionalLight.target);
+                
+                // Notify iTowns that the scene has changed
+                view.notifyChange();
+            }
+            
+            // Call lighting setup before loading the model
+            addSceneLighting();
+
+            // Add a 3D boat model to the scene
+            function addBoatModel() {
+                // Create geographic coordinates for the boat
+                const longitude = -71.311;  // Slightly offset from the cube
+                const latitude = 41.491;
+                const altitude = 5;  // Height above ground
+                
+                // Calculate position in the view's reference system
+                const boatCoord = new itowns.Coordinates('EPSG:4326', longitude, latitude, altitude);
+                const coordView = boatCoord.as(view.referenceCrs);
+                
+                // Create a loader for GLTF models
+                const gltfLoader = new itowns.iGLTFLoader();
+                
+                // Load the boat model
+                // Replace this URL with the path to your actual boat model
+                gltfLoader.load(
+                    // Resource URL - replace with your model path
+                    './models/EGO.glb',
+                    
+                    // Called when the resource is loaded
+                    (gltf) => {
+                        const boatModel = gltf.scene;
+                        
+                        // Set the boat position
+                        coordView.toVector3(boatModel.position);
+                        
+                        // Orient the boat - point to the center of the earth
+                        boatModel.lookAt(coordView.geodesicNormal.clone().multiplyScalar(1000).add(boatModel.position));
+                        
+                        // Scale the model to an appropriate size
+                        // Adjust this scale factor according to your model
+                        boatModel.scale.set(10, 10, 10);
+                        
+                        // Rotate model as needed to correct orientation
+                        // Adjust these rotations based on your model's default orientation
+                        boatModel.rotateX(Math.PI / 2);  // 90 degrees around X axis
+
+                        console.log(boatModel)
+                        
+                        // Add a light at the top of the boat
+                        const lightColor = 0xffaa00; // Warm yellow light
+                        const lightIntensity = 200;
+                        const lightDistance = 500; // How far the light reaches
+                        const lightDecay = 2; // How quickly light intensity diminishes with distance
+                        
+                        // Create a point light
+                        const boatLight = new itowns.THREE.PointLight(
+                            lightColor,
+                            lightIntensity,
+                            lightDistance,
+                            lightDecay
+                        );
+                        
+                        // Position the light at the top of the boat
+                        // You may need to adjust these coordinates based on your model's size and shape
+                        boatLight.position.set(0, 10, 0); // x, y, z offset from the boat's origin
+                        
+                        // Add a small sphere to make the light visible
+                        // const lightSphere = new itowns.THREE.Mesh(
+                        //     new itowns.THREE.SphereGeometry(5, 16, 16),
+                        //     new itowns.THREE.MeshBasicMaterial({ color: lightColor })
+                        // );
+                        // boatLight.add(lightSphere); // Add sphere as child of light
+                        
+                        // Add the light as a child of the boat model
+                        boatModel.add(boatLight);
+                        
+                        // Add the boat to the scene
+                        view.scene.add(boatModel);
+                        boatModel.updateMatrixWorld(true);
+                        
+                        // Notify iTowns that the scene has changed and needs rendering
+                        view.notifyChange();
+                    },
+                    
+                    // Called while loading is progressing
+                    (xhr) => {
+                        console.log(`Boat model: ${(xhr.loaded / xhr.total * 100)}% loaded`);
+                    },
+                    
+                    // Called when loading has errors
+                    (error) => {
+                        console.error('An error happened while loading the boat model:', error);
+                    }
+                );
+            }
+            
+            // Call the function to add the boat
+            addBoatModel();
 
         </script>
     </body>
