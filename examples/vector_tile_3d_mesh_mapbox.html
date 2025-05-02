@@ -40,7 +40,8 @@
 
             // Define camera initial position
             const placement = {
-                coord: new itowns.Coordinates('EPSG:4326', -71.310196, 41.490578),
+                // coord: new itowns.Coordinates('EPSG:4326', -71.310196, 41.490578),
+                coord: new itowns.Coordinates('EPSG:4326', -71.057083, 42.361145),
                 range: 5000,
                 tilt: 45,
             };
@@ -62,6 +63,31 @@
             setupLoadingScreen(viewerDiv, view);
             const debugMenu = new GuiTools('menuDiv', view, 300);
 
+            let cameraState = {
+                tilt: 45,
+                heading: 0,
+            }
+
+            // Add camera controls to GUI
+            function addCameraControlsToGUI() {
+                // Create camera controls folder
+                const cameraFolder = debugMenu.gui.addFolder('Camera Controls');
+                cameraFolder.open(); // Expand the folder by default
+                
+                // Add tilt slider (0-90 degrees range)
+                cameraFolder.add(cameraState, 'tilt', 0, 90).name('Tilt (°)').onChange((value) => {
+                    cameraState.tilt = value;
+                });
+                
+                // Add heading slider (0-360 degrees range)
+                cameraFolder.add(cameraState, 'heading', 0, 360).name('Heading (°)').onChange((value) => {
+                    cameraState.heading = value;
+                });
+            }
+            
+            // Add camera controls to GUI
+            addCameraControlsToGUI();
+
             // ---------- DISPLAY CONTEXTUAL DATA : ----------
 
             // Add one imagery layer to the scene. This layer's properties are
@@ -69,9 +95,11 @@
             // object. See `Layer` documentation for more info.
             const ortho = itowns.Fetcher.json('./layers/JSONLayers/Ortho.json')
                 .then(function _(config) {
-                    config.source = new itowns.WMTSSource(config.source);
-                    var layer = new itowns.ColorLayer('Ortho', config);
-                    return view.addLayer(layer);
+                    // config.source = new itowns.WMTSSource(config.source);
+                    // var layer = new itowns.ColorLayer('Ortho', config);
+                    // Set Ortho layer visibility to false to turn off satellite texture
+                    // layer.visible = false;
+                    // return view.addLayer(layer);
                 });
 
             // Add an elevation layer, whose properties are defined in a json 
@@ -114,6 +142,25 @@
                         // paint: {
                             // 'fill-color': 'green',
                         // }
+                    }],
+                }
+            });
+
+            const bostonSource = new itowns.VectorTilesSource({
+                style: {
+                    sources: {
+                        sourceTiles: {
+                            tiles: ['http://localhost:3000/boston/{z}/{x}/{y}']
+                        }
+                    },
+                    layers: [{
+                        id: 'boston',
+                        source: 'sourceTiles',
+                        'source-layer': 'boston',
+                        type: 'fill',
+                        paint: {
+                            'fill-color': 'red',
+                        }
                     }],
                 }
             });
@@ -205,10 +252,31 @@
                 }
             });
 
+            var bostonLayer = new itowns.FeatureGeometryLayer('boston',{
+                batchId: function (property, featureId) { return featureId; },
+                source: bostonSource,
+                zoom: {
+                    min: 15,
+                },
+                style: {
+                    fill: {
+                        // the building with type = roof doesn't have same properties as the others
+                        // base_altitude: (p, ctx) => {
+                        //     return (altitudeBuildings(p, ctx) || 0) + (p.min_height || 0);
+                        // },
+                        // extrusion_height: (p) => {
+                        //     return p.height || 0;
+                        // },
+                    },
+                }
+            });
+
             // Add the FeatureGeometryLayer to the scene and to the debug menu.
-            view.addLayer(buildingsLayer);
+            // view.addLayer(buildingsLayer);
 
             view.addLayer(contoursLayer);
+
+            view.addLayer(bostonLayer);
 
             // ---------- DEBUG TOOLS : ----------
 
@@ -265,8 +333,8 @@
                 const cube = new itowns.THREE.Mesh(geometry, material);
                 
                 // Set cube position using geographical coordinates
-                const longitude = -71.310196;
-                const latitude = 41.490578;
+                const longitude = -71.057083;
+                const latitude = 42.361145;
                 const altitude = 300; // Meters above ground
                 
                 // Create geographic coordinates
@@ -290,6 +358,8 @@
                 cube.lookAt(0, 0, 0);
                 cube.updateMatrixWorld(true);
 
+                console.log('cube position:', cube.position)
+
                 setInterval(() => {
                     cube.rotation.x += 0.001;
                     cube.updateMatrixWorld(true);
@@ -298,7 +368,7 @@
             }
             
             // Call the function to add the cube
-            // addCube();
+            addCube();
 
             // Add scene lighting for better visibility of 3D models
             function addSceneLighting() {
@@ -328,13 +398,15 @@
             // Call lighting setup before loading the model
             addSceneLighting();
 
+            let boatModelRef = null;
+
             // Add a 3D boat model to the scene
             function addBoatModel() {
                 // Create geographic coordinates for the boat
-                const longitude = -71.311;  // Slightly offset from the cube
-                const latitude = 41.491;
+                const longitude = -71.057083;  // Slightly offset from the cube
+                const latitude = 42.361145;
                 const altitude = 5;  // Height above ground
-                
+  
                 // Calculate position in the view's reference system
                 const boatCoord = new itowns.Coordinates('EPSG:4326', longitude, latitude, altitude);
                 const coordView = boatCoord.as(view.referenceCrs);
@@ -352,25 +424,28 @@
                     (gltf) => {
                         const boatModel = gltf.scene;
                         
+                        // Store reference to the boat model for updating position/rotation
+                        boatModelRef = boatModel;
+                        
                         // Set the boat position
                         coordView.toVector3(boatModel.position);
                         
-                        // Orient the boat - point to the center of the earth
+                        console.log(boatModel);
+                        
+                        // Orient the boat to point up from the globe surface
                         boatModel.lookAt(coordView.geodesicNormal.clone().multiplyScalar(1000).add(boatModel.position));
                         
                         // Scale the model to an appropriate size
                         // Adjust this scale factor according to your model
-                        boatModel.scale.set(10, 10, 10);
+                        // boatModel.scale.set(10, 10, 10);
                         
                         // Rotate model as needed to correct orientation
                         // Adjust these rotations based on your model's default orientation
                         boatModel.rotateX(Math.PI / 2);  // 90 degrees around X axis
-
-                        console.log(boatModel)
                         
                         // Add a light at the top of the boat
                         const lightColor = 0xffaa00; // Warm yellow light
-                        const lightIntensity = 200;
+                        const lightIntensity = 2;
                         const lightDistance = 500; // How far the light reaches
                         const lightDecay = 2; // How quickly light intensity diminishes with distance
                         
@@ -385,13 +460,6 @@
                         // Position the light at the top of the boat
                         // You may need to adjust these coordinates based on your model's size and shape
                         boatLight.position.set(0, 10, 0); // x, y, z offset from the boat's origin
-                        
-                        // Add a small sphere to make the light visible
-                        // const lightSphere = new itowns.THREE.Mesh(
-                        //     new itowns.THREE.SphereGeometry(5, 16, 16),
-                        //     new itowns.THREE.MeshBasicMaterial({ color: lightColor })
-                        // );
-                        // boatLight.add(lightSphere); // Add sphere as child of light
                         
                         // Add the light as a child of the boat model
                         boatModel.add(boatLight);
@@ -418,6 +486,763 @@
             
             // Call the function to add the boat
             addBoatModel();
+
+            // ------------------------------------- new features ----------------------------------------------
+            // 1. listen to replay_sync.py, get the messages & update the boat
+            // 2. change camera upon orbiting, CTRL+LMB orbiting
+            // 3. 3 camera modes
+
+            let minimapObjectsGroup;
+            minimapObjectsGroup = new itowns.THREE.Group();
+            view.scene.add(minimapObjectsGroup);
+
+            const hostname = window.location.hostname || 'localhost';
+
+            let cameraFollowMode = true;
+
+            let position = {latitude: 0, longitude: 0};
+            let headingN = 0;
+            let boatOrigin = null;
+
+            let sharedLatLonNMEA = [];//new Float64Array(bufferNMEA, 4 * Float64Array.BYTES_PER_ELEMENT, 2);
+            sharedLatLonNMEA[0] = position.latitude;
+            sharedLatLonNMEA[1] = position.longitude;
+
+            let nmeaStatus = false;
+            let nmeaSocket;
+            let nmeaReconnectInterval = 1000; // Initial interval for reconnection
+            let nmeaReconnectAttempts = 0;
+            const nmeaMaxReconnectAttempts = 5; // Set max attempts as needed
+            const nmeaMaxReconnectInterval = 16000; // Set max interval as needed
+
+            function initWorker() {
+                // Initialize the worker
+                // Fixed: Using a regular URL since import.meta.url might not be supported in all contexts
+
+                // WebSocket connection for NMEA data (port 3636)
+                nmeaSocket = new WebSocket(`ws://${hostname}:3636`);
+
+                nmeaSocket.addEventListener('open', function () {
+                    nmeaStatus = true;
+                    console.log('Connected to NMEA WebSocket');
+                    nmeaReconnectInterval = 1000; // Reset interval after a successful connection
+                    nmeaReconnectAttempts = 0;
+                });
+
+                // nmeaSocket.addEventListener('message', (event) => {handleNMEAEvent(event)});
+                nmeaSocket.addEventListener('message', function (event) {
+                    const data = JSON.parse(event.data);
+                    if (data.Heading) {
+                        headingN = data.Heading;
+                        updateBoatHeading();
+                    }
+                    if (data.Latitude && data.Longitude) {
+                        if (!boatOrigin) {
+                            boatOrigin = {
+                                lat: data.Latitude,
+                                lon: data.Longitude,
+                            };
+                            console.log("Boat origin set to:", boatOrigin);
+                        }
+                        position.latitude = data.Latitude;
+                        position.longitude = data.Longitude;
+
+                        // todo Steve: test boston area for now
+                        // position.latitude = 42.361145;
+                        // position.longitude = -71.057083;
+                        sharedLatLonNMEA[0] = position.latitude;
+                        sharedLatLonNMEA[1] = position.longitude;
+                        updateBoatPosition();
+                        updateCameraPosition();
+                    }
+                });
+
+                nmeaSocket.addEventListener('error', function (event) {
+                    console.error('NMEA WebSocket error observed:', event);
+                });
+
+                nmeaSocket.addEventListener('close', function () {
+                    nmeaStatus = false;
+                    console.log('NMEA WebSocket is closed now. Attempting to reconnect...');
+                    if (nmeaReconnectAttempts < nmeaMaxReconnectAttempts) {
+                        setTimeout(initWorker, nmeaReconnectInterval);
+                        nmeaReconnectInterval = Math.min(nmeaReconnectInterval * 2, nmeaMaxReconnectInterval);
+                        nmeaReconnectAttempts++;
+                    } else {
+                        console.error('Max reconnect attempts reached. Cannot reconnect to NMEA WebSocket.');
+                    }
+                });
+            }
+
+            initWorker();
+
+            // Function to update boat position based on received position data
+            function updateBoatPosition() {
+                if (!boatModelRef) return;
+                
+                try {
+                    // Create coordinates for the new position
+                    const boatCoord = new itowns.Coordinates('EPSG:4326', position.longitude, position.latitude, 5);
+                    const coordView = boatCoord.as(view.referenceCrs);
+                    
+                    // Update boat position
+                    coordView.toVector3(boatModelRef.position);
+                    
+                    // Look at the center of the earth or adjust as needed
+                    boatModelRef.lookAt(coordView.geodesicNormal.clone().multiplyScalar(1000).add(boatModelRef.position));
+
+                    boatModelRef.rotateX(Math.PI / 2);
+                    
+                    // Update matrices
+                    boatModelRef.updateMatrixWorld(true);
+                    
+                    // Notify iTowns that the scene has changed
+                    view.notifyChange();
+                } catch (error) {
+                    console.error('Error updating boat position:', error);
+                }
+            }
+            
+            // Function to update boat heading based on received heading data
+            function updateBoatHeading() {
+                if (!boatModelRef) return;
+                
+                try {
+                    const boatCoord = new itowns.Coordinates('EPSG:4326', position.longitude, position.latitude, 5);
+                    const coordView = boatCoord.as(view.referenceCrs);
+
+                    boatModelRef.lookAt(coordView.geodesicNormal.clone().multiplyScalar(1000).add(boatModelRef.position));
+
+                    boatModelRef.rotateX(Math.PI / 2);
+
+                    boatModelRef.updateMatrixWorld(true);
+
+                    const headingRad = ((headingN + 180) * Math.PI) / 180;
+                    // console.log(headingRad)
+                    boatModelRef.rotateOnAxis(coordView.geodesicNormal, headingRad);
+                    // boatModelRef.rotateOnAxis(new itowns.THREE.Vector3(0, 1, 0), headingRad);
+
+                    boatModelRef.updateMatrixWorld(true);
+                    
+                    // Notify iTowns that the scene has changed
+                    view.notifyChange();
+                } catch (error) {
+                    console.error('Error updating boat heading:', error);
+                }
+            }
+
+            function updateCameraPosition(force = false) {
+                if (!boatModelRef || !cameraFollowMode) return;
+                
+                try {
+                    // Create coordinates for the boat's current position
+                    const boatCoord = new itowns.Coordinates('EPSG:4326', position.longitude, position.latitude, 5);
+                    
+                    // Setup camera parameters similar to initial view placement
+                    const cameraParams = {
+                        coord: boatCoord,
+                        range: 500,  // Distance from boat (in meters)
+                        tilt: cameraState.tilt,    // Camera tilt angle (45 degrees looking down)
+                        // heading: headingN  // Align camera with boat heading
+                        heading: cameraState.heading  // Align camera with boat heading
+                    };
+
+
+                    
+                    // The issue might be with the animation parameter (true) in lookAtCoordinate
+                    // Let's use a different approach to position the camera more directly
+                    
+                    // Get the position vector in iTowns coordinate system
+                    const targetPosition = boatCoord.as(view.referenceCrs);
+                    const positionVector = new itowns.THREE.Vector3();
+                    targetPosition.toVector3(positionVector);
+                    
+                    // Calculate the camera position based on desired range, tilt, and heading
+                    // const headingRad = (cameraState.heading * Math.PI) / 180;
+                    const headingRad = (headingN * Math.PI) / 180;
+                    const tiltRad = (cameraState.tilt * Math.PI) / 180;
+                    
+                    // Create an offset from the boat's position
+                    const cameraOffset = new itowns.THREE.Vector3(
+                        500 * Math.sin(headingRad) * Math.cos(tiltRad),
+                        500 * Math.cos(headingRad) * Math.cos(tiltRad),
+                        500 * Math.sin(tiltRad)
+                    );
+                    
+                    // Set camera position and target
+                    view.camera.camera3D.position.copy(positionVector).add(cameraOffset);
+                    view.camera.camera3D.lookAt(positionVector);
+                    
+                    // Update the camera immediately without animation
+                    view.notifyChange(view.camera.camera3D);
+                    
+                    // console.log('Camera updated immediately to follow boat');
+                } catch (error) {
+                    console.error('Error updating camera position:', error);
+                }
+            }
+
+            // Add camera control GUI
+            function addCameraControls() {
+                // Create a button element
+                const followBtn = document.createElement('button');
+                followBtn.innerHTML = 'Toggle Camera Follow';
+                followBtn.style.position = 'absolute';
+                followBtn.style.top = '10px';
+                followBtn.style.right = '10px';
+                followBtn.style.zIndex = '1000';
+                followBtn.style.padding = '10px';
+                followBtn.style.backgroundColor = cameraFollowMode ? '#00aa00' : '#333';
+                followBtn.style.color = 'white';
+                followBtn.style.border = 'none';
+                followBtn.style.borderRadius = '5px';
+                followBtn.style.cursor = 'pointer';
+                
+                // Add toggle functionality
+                followBtn.addEventListener('click', function() {
+                    cameraFollowMode = !cameraFollowMode;
+                    followBtn.style.backgroundColor = cameraFollowMode ? '#00aa00' : '#333';
+                    
+                    if (cameraFollowMode) {
+                        updateCameraPosition();
+                    }
+                });
+                
+                // Add button to the document
+                document.body.appendChild(followBtn);
+            }
+            
+            // Initialize camera controls
+            addCameraControls();
+
+            // currently they don't do anything
+            viewerDiv.addEventListener('pointerdown', (e) => {
+                e.preventDefault();
+                // updateCameraPosition(true);
+                return false;
+            });
+
+            viewerDiv.addEventListener('pointermove', (e) => {
+                e.preventDefault();
+                // updateCameraPosition(true);
+                return false;
+            });
+
+            function checkAndFetchData() {
+                setInterval(() => {
+                        fetchAndUpdateMarkers();
+                }, 1000);
+
+                setInterval(() => {
+                        fetchAndUpdatePOIs();
+                }, 1000);
+            }
+            checkAndFetchData();
+
+            async function fetchAndUpdateMarkers() {
+                if (sharedLatLonNMEA) {
+                    const tileData = await fetchTileData(sharedLatLonNMEA[0], sharedLatLonNMEA[1]); 
+                    const dirData = await fetchDirData(sharedLatLonNMEA[0], sharedLatLonNMEA[1]);
+                    // const dirData = null;
+                    if (tileData && dirData) {
+                        // if (tileData) {
+                        addMarkers(tileData.features, dirData?.features);
+                    }
+                }
+            }
+
+            async function fetchAndUpdatePOIs() {
+                if (sharedLatLonNMEA) {
+                    const poiData = await fetchPOIData(sharedLatLonNMEA[0], sharedLatLonNMEA[1]); 
+                    if (poiData) {
+                        addPOIs(poiData.features);
+                    }
+                }
+            }
+
+            // Fetch data from the server
+            async function fetchTileData(lat, lon) {
+                const url = `http://${hostname}:3001/get-tile?lat=${lat}&lon=${lon}&zoom=16&layer=noaa_navigational_aids`;
+                // const url = `http://34.230.59.116:3001/get-tile?lat=${lat}&lon=${lon}&zoom=14&layer=noaa_navigational_aids`;
+                // const url = `http://192.168.1.191:3001/get-tile?lat=${lat}&lon=${lon}&zoom=16&layer=noaa_navigational_aids`;
+
+                try {
+                    const response = await fetch(url);
+                    const data = await response.json();
+                    return data;
+                } catch (error) {
+                    // console.error('Error fetching tile data:', error);
+                    return null;
+                }
+            }
+
+            // Fetch data from the server
+            async function fetchDirData(lat, lon) {
+                const url = `http://${hostname}:3001/get-tile?lat=${lat}&lon=${lon}&zoom=16&layer=directional`;
+                // const url = `http://34.230.59.116:3001/get-tile?lat=${lat}&lon=${lon}&zoom=14&layer=directional`;
+                // const url = `http://192.168.1.191:3001/get-tile?lat=${lat}&lon=${lon}&zoom=16&layer=directional`;
+                try {
+                    const response = await fetch(url);
+                    const data = await response.json();
+                    return data;
+                } catch (error) {
+                    // console.error('Error fetching tile data:', error);
+                    return null;
+                }
+            }
+
+            // Fetch data from the server
+            async function fetchPOIData(lat, lon) {
+                const url = `http://${hostname}:3001/get-tile?lat=${lat}&lon=${lon}&zoom=14&layer=poi`;
+                // const url = `http://34.230.59.116:3001/get-tile?lat=${lat}&lon=${lon}&zoom=14&layer=poi`;
+                // const url = `http://192.168.1.191:3001/get-tile?lat=${lat}&lon=${lon}&zoom=14&layer=poi`;
+                try {
+                    const response = await fetch(url);
+                    const data = await response.json();
+                    return data;
+                } catch (error) {
+                    // console.error('Error fetching tile data:', error);
+                    return null;
+                }
+            }
+
+            // todo Steve: explicitly notify changes, so that we don't have to worry about calling this when we update some Buoys or POIs
+            // not good, need to change
+            setInterval(() => {
+                view.notifyChange();
+            }, 10);
+
+            const modelMap = new Map(); // Map to keep track of buoy Markers with their ids
+            const distMap = new Map(); // Map to keep track of distance values for buoy-ids
+
+            const poiDistMap = new Map(); // Map to keep track of distance values for POIs
+            const poiMap = new Map(); // Map to keep track of POIs with their ids
+
+            function addPOIs(poiFeatures) {
+                const newPOIMap = new Map(); // Temporary map to keep track of new POIs data
+                const newPoiDistMap = new Map(); // Temporary map to keep track of new dist values
+
+
+                poiFeatures.forEach(feature => {
+                    const id = feature.properties.ogc_fid;
+                    const description = feature.properties.description;
+                    const distance = feature.properties.dist;
+                    const name = feature.properties.name;
+
+                    if (poiMap.has(id) && poiDistMap.has(id)) {
+                        // If the poi already exists, check its current Dist with new dist value
+                        const currentPoiDist = poiDistMap.get(id);
+                        if (currentPoiDist !== distance) {
+                            // Dist value has changed, update the frontend
+                            // updatePoiDistValueOnFrontend(id, distance);
+                            newPoiDistMap.set(id, distance); // Update the new dist map
+                        }
+                        newPOIMap.set(id, poiMap.get(id));
+
+                    } else {
+                        // Create a new poi and text mesh
+                        const [lon, lat] = feature.geometry.coordinates;
+                        // const cartesian = Cesium.Cartesian3.fromDegrees(lon, lat, 10);
+                        // const position = new itowns.THREE.Vector3(cartesian.x, 100, -cartesian.y);
+
+                        if (!boatOrigin) {
+                            return;
+                        }
+
+                        const position = gpsToLocalCoordinates(lat, lon, 10, boatOrigin);
+                        // console.log(position);
+                        // position.set(1532327.1091166462, -4464645.81980152, 4275532.310279709);
+
+                        if (description && distance && name && id) {
+                            // console.log(description,distance,name,id)
+
+                            let minimapObject = minimapObjectsGroup.getObjectByName(`3D-poi-${id}`);
+                            if (!minimapObject) {
+                                // Create and add the object if it doesn't exist
+                                // minimapObject = createLowPolyObject(position, id, "#0A2687", "P");
+
+                                const geo = new itowns.THREE.SphereGeometry(20, 8, 8);
+                                const mat = new itowns.THREE.MeshBasicMaterial({ color: 0x0000cc });
+                                minimapObject = new itowns.THREE.Mesh(geo, mat);
+                                minimapObject.position.copy(position);
+                                minimapObject.name = `3D-poi-${id}`;
+
+                                minimapObject.updateMatrixWorld(true);
+
+                                minimapObjectsGroup.add(minimapObject);
+                            } else {
+                                // Update position if it exists
+                                minimapObject.position.copy(position);
+                            }
+
+                            newPOIMap.set(id, {position}); // Store the new POI data
+                            newPoiDistMap.set(id, distance); // Update the new Poi dist map
+                        }
+                    }
+                });
+
+                // Remove models that are no longer in the new data set
+                poiMap.forEach((data, id) => {
+                    if (!newPOIMap.has(id)) {
+                        // Remove the corresponding 3D object from the minimap
+                        const minimapObject = minimapObjectsGroup.getObjectByName(`3D-poi-${id}`);
+                        if (minimapObject) {
+                            minimapObjectsGroup.remove(minimapObject);
+                            minimapObject.geometry.dispose();  // Dispose of the geometry if no longer needed
+                            minimapObject.material.dispose();  // Dispose of the material if no longer needed
+                        }
+                    }
+                });
+
+                // Update the model map to the new set of models
+                poiMap.clear();
+                newPOIMap.forEach((data, id) => {
+                    poiMap.set(id, data);
+                });
+
+                // Update the dist map to the new set of dist values
+                poiDistMap.clear();
+                newPoiDistMap.forEach((dist, id) => {
+                    poiDistMap.set(id, dist);
+                });
+            }
+
+            function addMarkers(buoyFeatures, dirFeatures) {
+                const directionsMap = new Map(); // Temporary map to keep track of new directional data
+                const newModelMap = new Map(); // Temporary map to keep track of new buoy data
+                const newDistMap = new Map(); // Temporary map to keep track of new dist values
+
+                dirFeatures?.forEach(direction => {
+                    directionsMap.set(direction.properties.buoy_id, direction);
+                });
+
+                buoyFeatures.forEach(feature => {
+                    const id = feature.properties.id;
+                    const dist = feature.properties.dist;
+
+                    if (directionsMap.has(id)) {
+                        const matchingDirection = directionsMap.get(id);
+                        if (modelMap.has(id) && distMap.has(id)) {
+                            // If the model already exists, check if dist value has changed
+                            const currentDist = distMap.get(id);
+                            if (currentDist !== dist) {
+                                // Dist value has changed, update the frontend
+                                // updateDistValueOnFrontend(id, dist); // Custom function to update frontend
+                                newDistMap.set(id, dist); // Update the new dist map
+                            }
+                            newModelMap.set(id, modelMap.get(id));
+
+                        } else {
+                            // Create a new model and text mesh
+                            const [lon, lat] = feature.geometry.coordinates;
+                            // console.log(typeof (lon), typeof (lat))
+                            // const cartesian = Cesium.Cartesian3.fromDegrees(lon, lat, 10);
+                            // const position = new itowns.THREE.Vector3(cartesian.x, cartesian.z , -cartesian.y);
+                            const position = gpsToLocalCoordinates(lat, lon, 20, boatOrigin);
+                            // console.log(position)
+
+                            // Create a new model and text mesh
+                            const [lonD, latD] = matchingDirection.geometry.coordinates[1];
+                            // const cartesianD = Cesium.Cartesian3.fromDegrees(lonD, latD, 10);
+                            // const positionD = new itowns.THREE.Vector3(cartesianD.x, cartesianD.z , -cartesianD.y);
+
+                            const positionD = gpsToLocalCoordinates(latD, lonD, 20, boatOrigin);
+
+                            // const directionTo = evaluateDirection(position, positionD);
+
+                            const channelMarker = feature.properties.channel_marker;
+                            const colorDesc = feature.properties.colour_desc;
+
+                            // if (channelMarker && directionTo != "buoyBehind" && colorDesc == "green" || colorDesc == "red") {
+                            if (channelMarker && colorDesc == "green" || colorDesc == "red") {
+
+                                let minimapObject = minimapObjectsGroup.getObjectByName(`3D-poi-${id}`);
+                                if (!minimapObject) {
+                                    // Create and add the object if it doesn't exist
+                                    // minimapObject = createLowPolyObject(position, id, colorDesc, channelMarker);
+
+                                    const geo = new itowns.THREE.SphereGeometry(10, 8, 8);
+                                    const mat = new itowns.THREE.MeshBasicMaterial({ color: (colorDesc === "green" ? 0x00cc00 : 0xcc0000) });
+                                    minimapObject = new itowns.THREE.Mesh(geo, mat);
+                                    minimapObject.position.copy(position);
+                                    minimapObject.name = `3D-poi-${id}`;
+
+                                    minimapObject.updateMatrixWorld(true);
+
+                                    minimapObjectsGroup.add(minimapObject);
+                                } else {
+                                    // Update position if it exists
+                                    minimapObject.position.copy(position);
+                                }
+
+                                let minimapObject2 = minimapObjectsGroup.getObjectByName(`3D-poi-${id}-dir`);
+                                if (!minimapObject2) {
+                                    // Create and add the object if it doesn't exist
+                                    // minimapObject2 = createLowPolyObject(positionD, id + "-dir", "black", channelMarker);
+
+                                    const geo = new itowns.THREE.SphereGeometry(10, 8, 8);
+                                    const mat = new itowns.THREE.MeshBasicMaterial({ color: 0xaaaaaa });
+                                    minimapObject2 = new itowns.THREE.Mesh(geo, mat);
+                                    minimapObject2.position.copy(positionD);
+                                    minimapObject2.name = `3D-poi-${id}-dir`;
+
+                                    minimapObject2.updateMatrixWorld(true);
+
+                                    minimapObjectsGroup.add(minimapObject2);
+                                } else {
+                                    // Update position if it exists
+                                    minimapObject2.position.copy(positionD);
+                                }
+                                // const dir = getRelativePosition(minimapObject2, minimapObject);
+                                // console.log(channelMarker, dir)
+                                const markerNum = parseInt(channelMarker, 10);
+                                if (!isNaN(markerNum)) {
+                                    // const container = loadMarkers(position, channelMarker, colorDesc, id, dir, dist);
+                                    // const markerSvg    = container.querySelector('.marker-svg');
+                                    // const imgElement   = container.querySelector(`#image-${id}`);
+                                    // const debugValueEl = container.querySelector('.debug-value');
+                                    // const existingDirectionImg = container.querySelector(`#dir-image-${id}`);
+                                    // const textElement = container.querySelector("text"); 
+                                    // const distElement = container.querySelector(`#distance-${id}`); 
+                                    // newModelMap.set(id, { position, positionD, dir, channelMarker, container, markerSvg, imgElement, debugValueEl, existingDirectionImg, textElement, distElement });
+                                    // newModelMap.set(id, { position, positionD, dir, channelMarker });
+                                    newModelMap.set(id, { position, positionD, channelMarker });
+                                    newDistMap.set(id, dist);
+                                }
+
+                            }
+                        }
+                    }
+                    else {
+                        //no directions
+                        if (modelMap.has(id) && distMap.has(id)) {
+                            // If the model already exists, check if dist value has changed
+                            const currentDist = distMap.get(id);
+                            if (currentDist !== dist) {
+                                // Dist value has changed, update the frontend
+                                // updateDistValueOnFrontend(id, dist); // Custom function to update frontend
+                                newDistMap.set(id, dist); // Update the new dist map
+                            }
+                            newModelMap.set(id, modelMap.get(id));
+
+                        } else {
+                            // Create a new model and text mesh
+                            const [lon, lat] = feature.geometry.coordinates;
+                            // console.log(typeof (lon), typeof (lat))
+                            // const cartesian = Cesium.Cartesian3.fromDegrees(lon, lat, 10);
+                            // const position = new itowns.THREE.Vector3(cartesian.x, 40, -cartesian.y);
+                            const position = gpsToLocalCoordinates(lat, lon, 30, boatOrigin);
+
+                            // // Create a new model and text mesh
+                            // const [lonD, latD] = matchingDirection.geometry.coordinates[1];
+                            // const cartesianD = Cesium.Cartesian3.fromDegrees(lonD, latD, 10);
+                            const positionD = position;
+
+                            // const directionTo = evaluateDirection(position, positionD);
+
+                            const channelMarker = feature.properties.channel_marker;
+                            const colorDesc = feature.properties.colour_desc;
+
+                            // if (channelMarker && directionTo != "buoyBehind") {
+                            if (channelMarker) {
+
+                                let minimapObject = minimapObjectsGroup.getObjectByName(`3D-poi-${id}`);
+                                if (!minimapObject) {
+                                    // Create and add the object if it doesn't exist
+                                    // minimapObject = createLowPolyObject(position, id, colorDesc, channelMarker);
+
+                                    const geo = new itowns.THREE.SphereGeometry(50, 8, 8);
+                                    const mat = new itowns.THREE.MeshBasicMaterial({ color: (colorDesc === "green" ? 0x00cc00 : 0xcc0000), wireframe: true });
+                                    minimapObject = new itowns.THREE.Mesh(geo, mat);
+                                    minimapObject.position.copy(position);
+                                    minimapObject.name = `3D-poi-${id}`;
+
+                                    minimapObject.updateMatrixWorld(true);
+
+                                    minimapObjectsGroup.add(minimapObject);
+                                } else {
+                                    // Update position if it exists
+                                    minimapObject.position.copy(position);
+                                }
+
+                                let minimapObject2 = minimapObjectsGroup.getObjectByName(`3D-poi-${id}-dir`);
+                                if (!minimapObject2) {
+                                    // Create and add the object if it doesn't exist
+                                    // minimapObject2 = createLowPolyObject(position, id + "-dir", "black", channelMarker);
+
+                                    const geo = new itowns.THREE.SphereGeometry(50, 8, 8);
+                                    const mat = new itowns.THREE.MeshBasicMaterial({ color: 0xaaaaaa, wireframe: true });
+                                    minimapObject2 = new itowns.THREE.Mesh(geo, mat);
+                                    minimapObject2.position.copy(positionD);
+                                    minimapObject2.name = `3D-poi-${id}-dir`;
+
+                                    minimapObject2.updateMatrixWorld(true);
+
+                                    minimapObjectsGroup.add(minimapObject2);
+                                } else {
+                                    // Update position if it exists
+                                    minimapObject2.position.copy(position);
+                                }
+                                const dir = null;
+                                // console.log(channelMarker, dir)
+                                const markerNum = parseInt(channelMarker, 10);
+                                if (!isNaN(markerNum)) {
+                                    // const container = loadMarkers(position, channelMarker, colorDesc, id, dir, dist);
+                                    // const markerSvg    = container.querySelector('.marker-svg');
+                                    // const imgElement   = container.querySelector(`#image-${id}`);
+                                    // const debugValueEl = container.querySelector('.debug-value');
+                                    // const existingDirectionImg = container.querySelector(`#dir-image-${id}`);
+                                    // const textElement = container.querySelector("text"); 
+                                    // const distElement = container.querySelector(`#distance-${id}`); 
+                                    // newModelMap.set(id, { position, positionD, dir, channelMarker, container, markerSvg, imgElement, debugValueEl, existingDirectionImg, textElement, distElement });
+                                    newModelMap.set(id, { position, positionD, dir, channelMarker });
+                                    newDistMap.set(id, dist);
+                                }
+
+                            }
+                        }
+
+                    }
+                });
+
+                // Remove models that are no longer in the new data set
+                modelMap.forEach((data, id) => {
+                    if (!newModelMap.has(id)) {
+                        // document.body.removeChild(data.container); // Remove the marker container from the DOM
+                        // Remove the corresponding 3D object from the minimap
+                        const minimapObject = minimapObjectsGroup.getObjectByName(`3D-poi-${id}`);
+                        const minimapObject2 = minimapObjectsGroup.getObjectByName(`3D-poi-${id}-dir`);
+
+                        [minimapObject, minimapObject2].forEach(obj => {
+                            if (!obj) return;
+                            minimapObjectsGroup.remove(obj);
+                            obj.geometry.dispose();
+                            obj.material.dispose();
+                        });
+
+                        // Finally delete the key from modelMap
+                        modelMap.delete(id);
+                        distMap.delete(id);
+                    }
+                });
+
+                // Update the model map to the new set of models
+                // 2) Upsert every entry from newModelMap (skip if identical)
+                for (const [id, data] of newModelMap) {
+                    modelMap.set(id, data);  
+                }
+
+                // Update the dist map to the new set of dist values
+                // 3) Upsert every entry from newModelMap (skip if identical)
+                for (const [id, dist] of newDistMap) {
+                    if (distMap.get(id) !== dist) {
+                        distMap.set(id, dist);
+                    }
+                }
+            }
+
+            function gpsToLocalCoordinates(lat, lon, alt = 0, reference) {
+                const objCoord = new itowns.Coordinates('EPSG:4326', lon, lat, alt);
+                const coordView = objCoord.as(view.referenceCrs);
+                
+                const result = new itowns.THREE.Vector3();
+                // Update boat position
+                coordView.toVector3(result);
+                
+                return result;
+            }
+
+            function gpsToLocalCoordinates_old(lat, lon, alt = 0, reference) {
+                console.log(reference);
+                // WGS84 ellipsoid parameters
+                const a = 6378137.0; // semi-major axis, in meters
+                const f = 1 / 298.257223563; // flattening
+                const e2 = 2 * f - f * f; // first eccentricity squared
+
+                // Convert degrees to radians
+                const latRad = itowns.THREE.MathUtils.degToRad(lat);
+                const lonRad = itowns.THREE.MathUtils.degToRad(lon);
+                const refLatRad = itowns.THREE.MathUtils.degToRad(reference.lat);
+                const refLonRad = itowns.THREE.MathUtils.degToRad(reference.lon);
+
+                // Meridian radius of curvature at the reference latitude
+                const N = a / Math.sqrt(1 - e2 * Math.sin(refLatRad) * Math.sin(refLatRad));
+
+                // Scale factors for east and north directions
+                const kx = N * Math.cos(refLatRad);
+                const ky = N * (1 - e2) / Math.sqrt(1 - e2 * Math.sin(refLatRad) * Math.sin(refLatRad));
+
+                // Compute local displacements:
+                // dx: east offset
+                const dx = (lonRad - refLonRad) * kx;
+                // dz: north offset (inverted here so that north becomes negative z)
+                const dz = -(latRad - refLatRad) * ky;
+
+                console.log(dx, dz);
+
+                // Return the local coordinates.
+                // You can use `alt` directly for the Y coordinate, or replace it with a fixed value if desired.
+                return new itowns.THREE.Vector3(dx, alt, dz);
+            }
+
+            function evaluateDirection(buoyPoint, safePoint) {
+                const vector1 = buoyPoint.clone().sub(camera.position);
+                const vector2 = safePoint.clone().sub(camera.position);
+
+                const cameraForward = new itowns.THREE.Vector3(0, 0, 1).applyQuaternion(camera.quaternion);
+
+                const isPoint1InFront = vector1.dot(cameraForward) < 0;
+                const isPoint2InFront = vector2.dot(cameraForward) < 0;
+
+                const screenVector1 = vector1.project(camera);
+                const screenVector2 = vector2.project(camera);
+
+                if (isPoint1InFront && isPoint2InFront) {
+                    const direction = screenVector2.x - screenVector1.x;
+
+                    if (direction > 0) {
+                        // console.log("Point2 is to the right of Point1");
+                        return "right";
+                    } else if (direction < 0) {
+                        // console.log("Point2 is to the left of Point1");
+                        return "left";
+                    } else {
+                        // console.log("Point2 is directly in line with Point1");
+                        return "inline";
+                    }
+                } else {
+                    if (!isPoint1InFront) {
+                        // console.log("Point1 is behind the camera");
+                        return "buoyBehind";
+                    }
+                    if (!isPoint2InFront) {
+                        // console.log("Point2 is behind the camera");
+                        return "dirBehind";
+                    }
+                }
+            }
+
+            function getRelativePosition(dirObject, buoyObject) {
+                const yellowBoxPosition = new itowns.THREE.Vector3();
+                dirObject.getWorldPosition(yellowBoxPosition);
+
+                const redBoxPosition = new itowns.THREE.Vector3();
+                buoyObject.getWorldPosition(redBoxPosition);
+
+                const cameraPosition = new itowns.THREE.Vector3();
+                camera.getWorldPosition(cameraPosition);
+
+                const cameraToYellowBox = new itowns.THREE.Vector3().subVectors(yellowBoxPosition, cameraPosition).normalize();
+                const cameraToRedBox = new itowns.THREE.Vector3().subVectors(redBoxPosition, cameraPosition).normalize();
+
+                const crossProduct = new itowns.THREE.Vector3().crossVectors(cameraToYellowBox, cameraToRedBox);
+
+                if (crossProduct.y > 0) {
+                    return "right";
+                } else if (crossProduct.y < 0) {
+                    return "left";
+                }
+            }
 
         </script>
     </body>
